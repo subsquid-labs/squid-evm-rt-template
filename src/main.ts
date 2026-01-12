@@ -35,7 +35,7 @@ const dataSource = new DataSourceBuilder()
 
     // The maxBytes param will change the batch size, which can be useful
     // for optimizing disk IO. The default is 52_428_800 or 50Mb
-    //maxBytes: 104_857_600, // 100Mb - will roughly double the batch size
+    //maxBytes: 52_428_800 * 2, // would roughly double the batch size
 
     // Uncomment the line below if you don't want to handle
     // indexer restarts on non-2XX HTTP responses.
@@ -83,6 +83,10 @@ const db = new TypeormDatabase({supportHotBlocks: true})
 // object provides the data via "ctx.blocks". However, the handler can contain
 // arbitrary TypeScript code, so it's OK to bring in extra data from IPFS,
 // direct RPC calls, external APIs etc.
+
+let totalBlocks = 0
+let totalBatches = 0
+
 run(dataSource, db, async (ctx) => {
   // Adding convenience fields and references to the block data.
   // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
@@ -116,5 +120,9 @@ run(dataSource, db, async (ctx) => {
   }
 
   // Just one insert per batch!
+  const batchLength = blocks[blocks.length-1].header.number - blocks[0].header.number + 1
+  totalBlocks += batchLength
+  totalBatches += 1
+  console.log(`For a batch of ${batchLength} blocks (avg ${totalBlocks/totalBatches}) inserting ${transfers.length} transfers`)
   await ctx.store.insert(transfers)
 })
