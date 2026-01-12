@@ -59,8 +59,7 @@ const dataSource = new DataSourceBuilder()
     include: {
       //transaction: true,
     },
-//    range: { from: 6_082_465 },
-    range: { from: 24_052_465 },
+    range: { from: 6_082_465 },
   })
   // .setFields() is for choosing data fields for the selected data items.
   // Here we're requesting hashes of parent transactions for all event logs.
