@@ -4,6 +4,10 @@
 // DataSourceBuilder will be used to make the object
 // responsible for data retrieval settings.
 import {DataSourceBuilder} from '@subsquid/evm-stream'
+// By default the data coming in will be rather basic.
+// This utility funciton will add some convenience fields
+// and references.
+import {augmentBlock} from '@subsquid/evm-objects'
 // To actually get the data and process it we'll use
 // the unified `run` function.
 import {run} from '@subsquid/batch-processor'
@@ -31,7 +35,7 @@ const dataSource = new DataSourceBuilder()
 
     // The maxBytes param will change the batch size, which can be useful
     // for optimizing disk IO. The default is 52_428_800 or 50Mb
-    //maxBytes: 104_857_600, // 100Mb
+    //maxBytes: 104_857_600, // 100Mb - will roughly double the batch size
 
     // Uncomment the line below if you don't want to handle
     // indexer restarts on non-2XX HTTP responses.
@@ -80,6 +84,10 @@ const db = new TypeormDatabase({supportHotBlocks: true})
 // arbitrary TypeScript code, so it's OK to bring in extra data from IPFS,
 // direct RPC calls, external APIs etc.
 run(dataSource, db, async (ctx) => {
+  // Adding convenience fields and references to the block data.
+  // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
+  const blocks = ctx.blocks.map(augmentBlock)
+
   // Making the container to hold that which will become the rows of the
   // usdc_transfer database table while processing the batch. We'll insert them
   // all at once at the end, massively saving IO bandwidth.
@@ -87,7 +95,7 @@ run(dataSource, db, async (ctx) => {
 
   // The data retrieved from the SQD Network gatewat and/or the RPC endpoint
   // is supplied via ctx.blocks
-  for (let block of ctx.blocks) {
+  for (let block of blocks) {
     // On EVM, each block has four iterables - logs, transactions, traces,
     // stateDiffs
     for (let log of block.logs) {
@@ -96,7 +104,7 @@ run(dataSource, db, async (ctx) => {
         // SQD's very own EVM codec at work - about 20 times faster than ethers
         let {from, to, value} = usdcAbi.events.Transfer.decode(log)
         transfers.push(new UsdcTransfer({
-          id: `${block.header.number}-${log.transactionIndex}-${log.logIndex}`,
+          id: log.id,
           block: block.header.number, // the height
           from,
           to,
