@@ -8,6 +8,11 @@ import {DataSourceBuilder} from '@subsquid/evm-stream'
 // This utility funciton will add some convenience fields
 // and references.
 import {augmentBlock} from '@subsquid/evm-objects'
+// In case when the batch handler has to make explicit RPC calls
+// (e.g. to figure out the state of some contract) we need to
+// add the client to the batch context explicitly.
+import {RpcClient} from '@subsquid/rpc-client'
+import {assertNotNull} from '@subsquid/util-internal' // for RPC URL validation
 // To actually get the data and process it we'll use
 // the unified `run` function.
 import {run} from '@subsquid/batch-processor'
@@ -59,7 +64,9 @@ const dataSource = new DataSourceBuilder()
     include: {
       //transaction: true,
     },
-    range: { from: 6_082_465 },
+    range: {
+      from: 6_082_465 // USDC contract deployment block
+    },
   })
   // .setFields() is for choosing data fields for the selected data items.
   // Here we're requesting hashes of parent transactions for all event logs.
@@ -77,15 +84,35 @@ const dataSource = new DataSourceBuilder()
 // datasets.
 const db = new TypeormDatabase({supportHotBlocks: true})
 
+// In this example we'll need to make some RPC calls from inside the batch handler.
+// Since the data source does not provide an RPC client (unlike the old processor),
+// we're adding it manually.
+const rpcClient = new RpcClient({
+  url: assertNotNull(process.env.RPC_ETH_HTTP, 'This example requires supplying RPC_ETH_HTTP for contract calls'),
+})
+
 // The run() call executes the data processing. Its last argument is
 // the handler function that is executed once on each batch of data. Processor
 // object provides the data via "ctx.blocks". However, the handler can contain
 // arbitrary TypeScript code, so it's OK to bring in extra data from IPFS,
 // direct RPC calls, external APIs etc.
-run(dataSource, db, async (ctx) => {
+run(dataSource, db, async (unmodifiedCtx) => {
+  // Manually adding the RPC client to the context
+  const ctx = {
+    _chain: {
+      client: rpcClient
+    },
+    ...unmodifiedCtx
+  }
+
   // Adding convenience fields and references to the block data.
   // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
   const blocks = ctx.blocks.map(augmentBlock)
+
+  // A test contract call - getting the number of USDC decimals
+  const interactableUsdcContract = new usdcAbi.Contract(ctx, blocks[0].header, USDC_CONTRACT_ADDRESS)
+  const usdcDecimals = await interactableUsdcContract.decimals()
+  console.log(`Learned that USDC used ${usdcDecimals} decimals at block ${blocks[0].header.height}!`)
 
   // Making the container to hold that which will become the rows of the
   // usdc_transfer database table while processing the batch. We'll insert them
