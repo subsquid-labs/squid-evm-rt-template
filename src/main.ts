@@ -105,21 +105,22 @@ const logger = createLogger('sqd:processor:mapping')
 run(dataSource, db, async (simpleCtx) => {
   // Manually adding the RPC client to the context
   const ctx = {
+    ...simpleCtx,
+    // augmentBlocks add convenience fields and references to the block data.
+    // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
+    blocks: simpleCtx.blocks.map(augmentBlock),
+    // RPC client must be added if the code uses direct RPC calls - see below
     _chain: {
       client: rpcClient
     },
+    // Logger was available via context in the old versions of the SDK
     log: logger,
-    ...simpleCtx
   }
 
-  // Adding convenience fields and references to the block data.
-  // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
-  const blocks = ctx.blocks.map(augmentBlock)
-
-  // A test contract call - getting the number of USDC decimals
-  const interactableUsdcContract = new usdcAbi.Contract(ctx, blocks[0].header, USDC_CONTRACT_ADDRESS)
+  // Testing a direct contract call via RPC: getting the number of USDC decimals
+  const interactableUsdcContract = new usdcAbi.Contract(ctx, ctx.blocks[0].header, USDC_CONTRACT_ADDRESS)
   const usdcDecimals = await interactableUsdcContract.decimals()
-  ctx.log.info(`Learned that USDC used ${usdcDecimals} decimals at block ${blocks[0].header.height}!`)
+  ctx.log.info(`Learned that USDC used ${usdcDecimals} decimals at block ${ctx.blocks[0].header.height}!`)
 
   // Making the container to hold that which will become the rows of the
   // usdc_transfer database table while processing the batch. We'll insert them
@@ -128,7 +129,7 @@ run(dataSource, db, async (simpleCtx) => {
 
   // The data retrieved from the SQD Network gatewat and/or the RPC endpoint
   // is supplied via ctx.blocks
-  for (let block of blocks) {
+  for (let block of ctx.blocks) {
     // On EVM, each block has four iterables - logs, transactions, traces,
     // stateDiffs
     for (let log of block.logs) {
