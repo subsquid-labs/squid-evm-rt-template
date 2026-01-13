@@ -90,13 +90,13 @@ const logger = createLogger('sqd:processor:mapping')
 // direct RPC calls, external APIs etc.
 run(dataSource, db, async (simpleCtx) => {
   const ctx = {
+    ...simpleCtx,
+    // Adding convenience fields and references to the block data.
+    // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
+    blocks: simpleCtx.blocks.map(augmentBlock),
+    // Logger was provided via context in the older versions of the SDK
     log: logger,
-    ...simpleCtx
   }
-
-  // Adding convenience fields and references to the block data.
-  // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
-  const blocks = ctx.blocks.map(augmentBlock)
 
   // Making the container to hold that which will become the rows of the
   // usdc_transfer database table while processing the batch. We'll insert them
@@ -105,7 +105,7 @@ run(dataSource, db, async (simpleCtx) => {
 
   // The data retrieved from the SQD Network gatewat and/or the RPC endpoint
   // is supplied via ctx.blocks
-  for (let block of blocks) {
+  for (let block of ctx.blocks) {
     // On EVM, each block has four iterables - logs, transactions, traces,
     // stateDiffs
     for (let log of block.logs) {
