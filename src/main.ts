@@ -8,6 +8,9 @@ import {DataSourceBuilder} from '@subsquid/evm-stream'
 // This utility funciton will add some convenience fields
 // and references.
 import {augmentBlock} from '@subsquid/evm-objects'
+// For backwards compatibility we also need to add
+// a logger manually
+import {createLogger} from '@subsquid/logger'
 // To actually get the data and process it we'll use
 // the unified `run` function.
 import {run} from '@subsquid/batch-processor'
@@ -77,12 +80,20 @@ const dataSource = new DataSourceBuilder()
 // datasets.
 const db = new TypeormDatabase({supportHotBlocks: true})
 
+// Creating a logger manually
+const logger = createLogger('sqd:processor:mapping')
+
 // The run() call executes the data processing. Its last argument is
 // the handler function that is executed once on each batch of data. Processor
 // object provides the data via "ctx.blocks". However, the handler can contain
 // arbitrary TypeScript code, so it's OK to bring in extra data from IPFS,
 // direct RPC calls, external APIs etc.
-run(dataSource, db, async (ctx) => {
+run(dataSource, db, async (simpleCtx) => {
+  const ctx = {
+    log: logger,
+    ...simpleCtx
+  }
+
   // Adding convenience fields and references to the block data.
   // E.g. block.logs[*].id, block.logs[*].transaction, block.transactions[*].logs etc
   const blocks = ctx.blocks.map(augmentBlock)
@@ -113,6 +124,8 @@ run(dataSource, db, async (ctx) => {
       }
     }
   }
+
+  ctx.log.info(`Got ${transfers.length} transfers`)
 
   // Just one insert per batch!
   await ctx.store.insert(transfers)
