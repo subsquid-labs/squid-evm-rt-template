@@ -13,6 +13,9 @@ import {augmentBlock} from '@subsquid/evm-objects'
 // add the client to the batch context explicitly.
 import {RpcClient} from '@subsquid/rpc-client'
 import {assertNotNull} from '@subsquid/util-internal' // for RPC URL validation
+// Old batch context also provided a logger, so we
+// should also add it here for backwards compatibility
+import {createLogger} from '@subsquid/logger'
 // To actually get the data and process it we'll use
 // the unified `run` function.
 import {run} from '@subsquid/batch-processor'
@@ -91,18 +94,22 @@ const rpcClient = new RpcClient({
   url: assertNotNull(process.env.RPC_ETH_HTTP, 'This example requires supplying RPC_ETH_HTTP for contract calls'),
 })
 
+// For full backwards compatibility we also need a logger
+const logger = createLogger('sqd:processor:mapping')
+
 // The run() call executes the data processing. Its last argument is
 // the handler function that is executed once on each batch of data. Processor
 // object provides the data via "ctx.blocks". However, the handler can contain
 // arbitrary TypeScript code, so it's OK to bring in extra data from IPFS,
 // direct RPC calls, external APIs etc.
-run(dataSource, db, async (unmodifiedCtx) => {
+run(dataSource, db, async (simpleCtx) => {
   // Manually adding the RPC client to the context
   const ctx = {
     _chain: {
       client: rpcClient
     },
-    ...unmodifiedCtx
+    log: logger,
+    ...simpleCtx
   }
 
   // Adding convenience fields and references to the block data.
@@ -112,7 +119,7 @@ run(dataSource, db, async (unmodifiedCtx) => {
   // A test contract call - getting the number of USDC decimals
   const interactableUsdcContract = new usdcAbi.Contract(ctx, blocks[0].header, USDC_CONTRACT_ADDRESS)
   const usdcDecimals = await interactableUsdcContract.decimals()
-  console.log(`Learned that USDC used ${usdcDecimals} decimals at block ${blocks[0].header.height}!`)
+  ctx.log.info(`Learned that USDC used ${usdcDecimals} decimals at block ${blocks[0].header.height}!`)
 
   // Making the container to hold that which will become the rows of the
   // usdc_transfer database table while processing the batch. We'll insert them
