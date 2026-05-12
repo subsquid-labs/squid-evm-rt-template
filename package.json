@@ -5,7 +5,7 @@
     "build": "rm -rf lib && tsc"
   },
   "dependencies": {
-    "@subsquid/batch-processor": "^0.2.0-portal-api.d5861e",
+    "@subsquid/batch-processor": "^1.0.0",
     "@subsquid/evm-abi": "^0.3.1",
     "@subsquid/evm-objects": "^0.0.2-portal-api.d5861e",
     "@subsquid/evm-stream": "^0.0.1-portal-api.d5861e",
