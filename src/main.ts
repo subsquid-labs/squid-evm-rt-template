@@ -65,6 +65,9 @@ const dataSource = new DataSourceBuilder()
   // Here we're requesting hashes of parent transactions for all event logs.
   .setFields({
     log: {
+      address: true,
+      topics: true,
+      data: true,
       transactionHash: true,
     },
   })
