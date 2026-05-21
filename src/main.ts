@@ -9,10 +9,14 @@ import {DataSourceBuilder} from '@subsquid/evm-stream'
 // and references.
 import {augmentBlock} from '@subsquid/evm-objects'
 // To actually get the data and process it we'll use
-// the unified `run` function.
-import {run} from '@subsquid/batch-processor'
+// the unified `run` function. PrometheusServer is re-exported
+// from the same package - we'll customize it below.
+import {run, PrometheusServer} from '@subsquid/batch-processor'
 // TypeormDatabase is the class responsible for data storage.
 import {TypeormDatabase} from '@subsquid/typeorm-store'
+// prom-client lets us declare our own Prometheus metrics
+// alongside the ones that the batch processor exposes by default.
+import {Counter, Gauge} from 'prom-client'
 // usdcAbi is a utility module generated from the JSON ABI of the USDC contract.
 // It contains methods for event decoding, direct RPC queries and some useful
 // constants.
@@ -65,6 +69,9 @@ const dataSource = new DataSourceBuilder()
   // Here we're requesting hashes of parent transactions for all event logs.
   .setFields({
     log: {
+      address: true,
+      topics: true,
+      data: true,
       transactionHash: true,
     },
   })
@@ -76,6 +83,43 @@ const dataSource = new DataSourceBuilder()
 // There are also Database classes for storing data to files and BigQuery
 // datasets.
 const db = new TypeormDatabase({supportHotBlocks: true})
+
+// Custom Prometheus metrics for this squid.
+//
+// We declare them with `registers: []` so that prom-client does not
+// auto-register them in its global default registry. Instead, we attach
+// them to the PrometheusServer's private registry inside the MetricsSink
+// below. Doing it this way keeps the custom metrics co-located with the
+// runner-provided ones (sqd_processor_*) on the same /metrics endpoint.
+const transfersProcessed = new Counter({
+  name: 'usdc_transfers_processed_total',
+  help: 'Total number of USDC Transfer events processed since startup',
+  registers: [],
+})
+
+const transfersInLastBatch = new Gauge({
+  name: 'usdc_transfers_last_batch',
+  help: 'Number of USDC Transfer events seen in the most recently processed batch',
+  registers: [],
+})
+
+// PrometheusServer is the same object that the batch-processor uses
+// internally when PROCESSOR_PROMETHEUS_PORT / PROMETHEUS_PORT is set.
+// By constructing one ourselves and passing it to run() we get to add
+// extra metric sinks; the framework still attaches its own runner metrics
+// and calls .serve() for us.
+const prometheus = new PrometheusServer()
+// Pin the listening port in code. Without this call the port comes from
+// the PROCESSOR_PROMETHEUS_PORT / PROMETHEUS_PORT env vars, and falls back
+// to 0 (an OS-assigned ephemeral port) if neither is set. setPort() takes
+// precedence over both env vars.
+prometheus.setPort(3000)
+prometheus.addMetricsSink({
+  register(registry) {
+    registry.registerMetric(transfersProcessed)
+    registry.registerMetric(transfersInLastBatch)
+  },
+})
 
 // The run() call executes the data processing. Its last argument is
 // the handler function that is executed once on each batch of data. Processor
@@ -116,4 +160,9 @@ run(dataSource, db, async (ctx) => {
 
   // Just one insert per batch!
   await ctx.store.insert(transfers)
-})
+
+  // Update our custom Prometheus metrics. Counters only go up; gauges
+  // can be set to an arbitrary value to reflect "current" state.
+  transfersProcessed.inc(transfers.length)
+  transfersInLastBatch.set(transfers.length)
+}, {prometheus})
